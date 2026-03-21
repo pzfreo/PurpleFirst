@@ -2,6 +2,9 @@ import { useState, useRef, useCallback } from 'react';
 import Tesseract from 'tesseract.js';
 import './App.css';
 
+declare const __APP_VERSION__: string;
+declare const __BUILD_HASH__: string;
+
 const COLORS = [
   { name: 'Purple', bg: '#7B2D8B', text: '#fff' },
   { name: 'Lilac', bg: '#9BADE5', text: '#000' },
@@ -632,6 +635,8 @@ function App() {
         <button onClick={handleEditOpen}>Edit</button>
         <button onClick={handleNew}>New</button>
       </div>
+
+      <div className="version">v{__APP_VERSION__}</div>
     </div>
   );
 }

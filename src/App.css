@@ -219,6 +219,13 @@ h1 {
   text-align: left;
 }
 
+.version {
+  text-align: center;
+  font-size: 11px;
+  color: #bbb;
+  margin-top: 16px;
+}
+
 .edit-panel textarea {
   width: 100%;
   font-size: 16px;
