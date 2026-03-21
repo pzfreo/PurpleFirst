@@ -46,6 +46,7 @@ async function preprocessImage(filePath) {
     }
 
     // Adaptive threshold: dark bg areas → white, light tile areas → preserve text
+    // Use dead zone (100-120) to avoid artifacts at tile/background borders
     const radius = 60;
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++) {
@@ -53,8 +54,9 @@ async function preprocessImage(filePath) {
         const localAvg = getAvg(x - radius, y - radius, x + radius, y + radius);
         const px = gray[y * w + x];
         let val;
-        if (localAvg < 110) val = px > localAvg + 50 ? 0 : 255;
-        else val = px < localAvg - 30 ? 0 : 255;
+        if (localAvg < 100) val = px > localAvg + 50 ? 0 : 255;
+        else if (localAvg > 120) val = px < localAvg - 30 ? 0 : 255;
+        else val = 255; // ambiguous zone (tile borders) → white
         d[i] = val; d[i + 1] = val; d[i + 2] = val;
       }
 
