@@ -88,19 +88,35 @@ function App() {
     // If in painting mode, paint the row
     if (paintingColor !== null) {
       const row = Math.floor(index / 4);
-      // Check if this colour is already assigned to another row
       const existingRow = Object.entries(rowColors).find(([, c]) => c === paintingColor);
       pushHistory();
-      setRowColors(prev => {
-        const next = { ...prev };
-        // Remove colour from any existing row
-        if (existingRow) {
-          next[Number(existingRow[0])] = null;
-        }
-        next[row] = paintingColor;
-        return next;
-      });
+
+      const nextColors: RowColorMap = { ...rowColors };
+      if (existingRow) {
+        nextColors[Number(existingRow[0])] = null;
+      }
+      nextColors[row] = paintingColor;
+      setRowColors(nextColors);
       setPaintingColor(null);
+
+      // If all four colours are now assigned, reorder rows: Purple first
+      const allAssigned = Object.values(nextColors).every(c => c !== null);
+      if (allAssigned && words) {
+        // Build new word order: row with colour 0 (Purple) first, then 1 (Lilac), etc.
+        const rowOrder = COLORS.map((_, ci) =>
+          Number(Object.entries(nextColors).find(([, c]) => c === ci)![0])
+        );
+        const reordered: string[] = [];
+        const finalColors: RowColorMap = { 0: null, 1: null, 2: null, 3: null };
+        rowOrder.forEach((oldRow, newRow) => {
+          for (let col = 0; col < 4; col++) {
+            reordered.push(words[oldRow * 4 + col]);
+          }
+          finalColors[newRow] = nextColors[oldRow];
+        });
+        setWords(reordered);
+        setRowColors(finalColors);
+      }
       return;
     }
 
