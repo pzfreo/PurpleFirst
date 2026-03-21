@@ -161,6 +161,12 @@ const tests = [
     expectedTiles: ['POUND', 'PLAIN', 'OBJECT', 'CROWN', 'JUMP', 'MARK', 'FRANK', 'RICH', 'GOAL', 'STRAIGHT', 'POINT', 'BISHOP', 'KING', 'BLUNT', 'FROST', 'CAPTURE'],
     expectedConfidence: 'high',
   },
+  {
+    name: 'Sample 4 - iPhone dark mode (user-reported)',
+    file: 'test-images/sample4.jpg',
+    expectedTiles: ['POUND', 'PLAIN', 'OBJECT', 'CROWN', 'JUMP', 'MARK', 'FRANK', 'RICH', 'GOAL', 'STRAIGHT', 'POINT', 'BISHOP', 'KING', 'BLUNT', 'FROST', 'CAPTURE'],
+    expectedConfidence: 'high',
+  },
 ];
 
 async function run() {
