@@ -11,29 +11,50 @@ const ROW_COLORS = [
 
 const IGNORED_WORDS = new Set([
   'CREATE', 'FOUR', 'GROUPS', 'OF', 'GROUP', 'SHUFFLE', 'SUBMIT',
-  'DESELECT', 'ALL', 'MISTAKES', 'REMAINING', 'MISTAKESREMAINING',
-  // Common browser / NYT UI fragments OCR picks up
-  'NYTIMES', 'COM', 'GAMES', 'COR', 'HTTPS', 'WWW', 'THE', 'NEW',
+  'DESELECT', 'ALL', 'MISTAKES', 'REMAINING',
+  'NYTIMES', 'COM', 'GAMES', 'HTTPS', 'WWW', 'THE', 'NEW',
   'YORK', 'CONNECTIONS', 'MENU', 'PLAY', 'TODAY', 'YESTERDAY',
 ]);
 
-function extractWords(text: string): string[] {
-  const words = text
-    .split(/\s+/)
-    .map(w => w.replace(/[^A-Z]/g, ''))
-    .filter(w =>
-      w.length >= 3 &&        // skip 1-2 char OCR noise
-      w.length <= 12 &&       // skip long URL/UI fragments
-      !IGNORED_WORDS.has(w)
-    );
+interface OcrWord {
+  text: string;
+  confidence: number;
+}
 
-  // Deduplicate while preserving order
+function getAllWords(data: Tesseract.Page): OcrWord[] {
+  const words: OcrWord[] = [];
+  if (!data.blocks) return words;
+  for (const block of data.blocks) {
+    for (const para of block.paragraphs) {
+      for (const line of para.lines) {
+        for (const word of line.words) {
+          words.push({ text: word.text, confidence: word.confidence });
+        }
+      }
+    }
+  }
+  return words;
+}
+
+function extractWords(data: Tesseract.Page): string[] {
+  const ocrWords = getAllWords(data);
+  const results: string[] = [];
   const seen = new Set<string>();
-  return words.filter(w => {
-    if (seen.has(w)) return false;
-    seen.add(w);
-    return true;
-  });
+
+  for (const w of ocrWords) {
+    const clean = w.text.toUpperCase().replace(/[^A-Z]/g, '');
+    if (
+      clean.length >= 3 &&
+      clean.length <= 12 &&
+      w.confidence > 60 &&
+      !IGNORED_WORDS.has(clean) &&
+      !seen.has(clean)
+    ) {
+      seen.add(clean);
+      results.push(clean);
+    }
+  }
+  return results;
 }
 
 function App() {
@@ -126,22 +147,20 @@ function App() {
       const { data } = await Tesseract.recognize(file, 'eng', {
         logger: () => {},
       });
-      const extracted = extractWords(data.text.toUpperCase());
-      if (extracted.length >= 16) {
-        setWords(extracted.slice(0, 16));
-        setHistory([]);
-        setLockedRows(new Set());
-        setSelectedIndex(null);
-      } else {
-        setScanError(`Found ${extracted.length} words — need 16. You can fix them manually.`);
-        // Pre-fill edit mode with what we found
-        const padded = [...extracted];
-        while (padded.length < 16) padded.push('');
-        setEditText(padded.join('\n'));
-        setEditMode(true);
+      const extracted = extractWords(data);
+      // Always show edit screen so user can verify/fix
+      const display = extracted.slice(0, 16);
+      if (extracted.length < 16) {
+        setScanError(`Found ${extracted.length} words — need 16. Please fix below.`);
+      } else if (extracted.length > 16) {
+        setScanError(`Found ${extracted.length} words — trimmed to 16. Please verify below.`);
       }
+      setEditText(display.join('\n'));
+      setEditMode(true);
     } catch {
       setScanError('OCR failed. Try entering words manually.');
+      setEditMode(true);
+      setEditText('');
     } finally {
       setScanning(false);
     }
