@@ -9,6 +9,12 @@ const ROW_COLORS = [
   { name: 'Green', bg: '#A0C35A', text: '#000' },
 ];
 
+const IGNORED_PHRASES = new Set([
+  'CREATE FOUR GROUPS OF FOUR',
+  'CREATE FOUR GROUPS OF FOUR!',
+  'MISTAKES REMAINING',
+]);
+
 const IGNORED_WORDS = new Set([
   'CREATE', 'FOUR', 'GROUPS', 'OF', 'GROUP', 'SHUFFLE', 'SUBMIT',
   'DESELECT', 'ALL', 'MISTAKES', 'REMAINING',
@@ -16,42 +22,69 @@ const IGNORED_WORDS = new Set([
   'YORK', 'CONNECTIONS', 'MENU', 'PLAY', 'TODAY', 'YESTERDAY',
 ]);
 
-interface OcrWord {
-  text: string;
-  confidence: number;
+/** Crop the image to roughly the grid area (middle ~55% vertically) */
+function cropToGrid(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      // Grid typically starts ~20% from top and ends ~75% down
+      const topCrop = Math.floor(img.height * 0.18);
+      const bottomCrop = Math.floor(img.height * 0.75);
+      const cropHeight = bottomCrop - topCrop;
+
+      canvas.width = img.width;
+      canvas.height = cropHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, topCrop, img.width, cropHeight, 0, 0, img.width, cropHeight);
+      canvas.toBlob(blob => {
+        if (blob) resolve(blob);
+        else reject(new Error('Failed to crop image'));
+      }, 'image/png');
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
 }
 
-function getAllWords(data: Tesseract.Page): OcrWord[] {
-  const words: OcrWord[] = [];
-  if (!data.blocks) return words;
-  for (const block of data.blocks) {
-    for (const para of block.paragraphs) {
-      for (const line of para.lines) {
-        for (const word of line.words) {
-          words.push({ text: word.text, confidence: word.confidence });
-        }
-      }
-    }
-  }
-  return words;
-}
+/** Extract tile labels from OCR data, preserving order and supporting multi-word tiles */
+function extractTiles(data: Tesseract.Page): string[] {
+  if (!data.blocks) return [];
 
-function extractWords(data: Tesseract.Page): string[] {
-  const ocrWords = getAllWords(data);
   const results: string[] = [];
   const seen = new Set<string>();
 
-  for (const w of ocrWords) {
-    const clean = w.text.toUpperCase().replace(/[^A-Z]/g, '');
-    if (
-      clean.length >= 3 &&
-      clean.length <= 12 &&
-      w.confidence > 60 &&
-      !IGNORED_WORDS.has(clean) &&
-      !seen.has(clean)
-    ) {
-      seen.add(clean);
-      results.push(clean);
+  for (const block of data.blocks) {
+    for (const para of block.paragraphs) {
+      for (const line of para.lines) {
+        // Build the full line text from high-confidence words
+        const lineWords: string[] = [];
+        let minConfidence = 100;
+        for (const word of line.words) {
+          minConfidence = Math.min(minConfidence, word.confidence);
+          const clean = word.text.toUpperCase().replace(/[^A-Z ]/g, '').trim();
+          if (clean) lineWords.push(clean);
+        }
+
+        const lineText = lineWords.join(' ').trim();
+        if (!lineText || minConfidence < 50) continue;
+        if (IGNORED_PHRASES.has(lineText)) continue;
+
+        // Check if every word in the line is an ignored word
+        const allIgnored = lineWords.every(w => IGNORED_WORDS.has(w));
+        if (allIgnored) continue;
+
+        // A tile label: 1-3 words, each 2-10 chars
+        const tileWords = lineText.split(/\s+/);
+        if (tileWords.length > 3) continue;
+        if (tileWords.some(w => w.length < 2 || w.length > 10)) continue;
+
+        const label = tileWords.join(' ');
+        if (!seen.has(label)) {
+          seen.add(label);
+          results.push(label);
+        }
+      }
     }
   }
   return results;
@@ -144,10 +177,12 @@ function App() {
     setScanning(true);
     setScanError(null);
     try {
-      const { data } = await Tesseract.recognize(file, 'eng', {
+      // Crop to grid area to avoid browser chrome and buttons
+      const cropped = await cropToGrid(file);
+      const { data } = await Tesseract.recognize(cropped, 'eng', {
         logger: () => {},
       });
-      const extracted = extractWords(data);
+      const extracted = extractTiles(data);
       // Always show edit screen so user can verify/fix
       const display = extracted.slice(0, 16);
       if (extracted.length < 16) {
