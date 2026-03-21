@@ -18,6 +18,12 @@ h1 {
   margin: 0 0 24px;
 }
 
+.hint {
+  font-size: 13px;
+  color: #999;
+  margin: 0 0 8px;
+}
+
 /* Landing screen */
 .landing {
   display: flex;

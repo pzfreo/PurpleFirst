@@ -253,6 +253,7 @@ function App() {
   return (
     <div className="app">
       <h1>Purple First</h1>
+      <p className="hint">Tap a tile, then tap another to swap them</p>
 
       <div className="grid">
         {words!.map((word, i) => {
