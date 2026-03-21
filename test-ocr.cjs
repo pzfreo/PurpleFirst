@@ -218,6 +218,13 @@ const tests = [
     expectedTiles: ['RACECAR', 'LAPEL PIN', 'SCREWDRIVER', 'WOLF EEL', 'BOLT CUTTER', 'GREYHOUND', 'SCARF RING', 'GRUMPY OLD MAN', 'COSMOPOLITAN', 'LAVALIER', 'CLOWNFISH', 'AWARENESS RIBBON', 'TALKING DOLL', 'CHOW MEIN', 'BOUTONNIERE', 'SEA BREEZE'],
     expectedConfidence: 'high',
   },
+  {
+    // OCR misreads: OUIJA→OULIA (J→L), ABECEDARIUM→ABECEDARIUN (M→N), SÉANCE accent stripped
+    name: 'Sample 10 - Android dark mode (COMPUTER KEYBOARD, OUIJA BOARD, SÉANCE)',
+    file: 'test-images/sample10.jpg',
+    expectedTiles: ['OULIA BOARD', 'BACKBONE', 'PLATFORM', 'SEANCE', 'SCRABBLE', 'MEDIUM', 'SACRUM', 'SPIRIT', 'OUTLET', 'SEITAN', 'ABECEDARIUN', 'HEART', 'COMPUTER KEYBOARD', 'COURAGE', 'VENUE', 'SEYCHELLES'],
+    expectedConfidence: 'high',
+  },
 ];
 
 async function run() {
