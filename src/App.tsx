@@ -118,7 +118,7 @@ function extractTilesFromImage(file: File): Promise<OcrResult> {
         }
 
         const { rows, cols } = grid;
-        const margin = 5;
+        const margin = 3;
         const tiles: string[] = [];
 
         for (let r = 0; r < 4; r++) {
@@ -147,7 +147,7 @@ function extractTilesFromImage(file: File): Promise<OcrResult> {
           resolve({ tiles: nonEmpty, confidence: 'low', reason: `${16 - nonEmpty.length} tiles could not be read` });
           return;
         }
-        const oddLength = tiles.filter(t => t.length < 3 || t.length > 15);
+        const oddLength = tiles.filter(t => t.length < 3 || t.length > 20);
         if (oddLength.length > 0) {
           resolve({ tiles, confidence: 'low', reason: `Unusual words: ${oddLength.join(', ')}` });
           return;

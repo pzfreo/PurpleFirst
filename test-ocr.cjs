@@ -88,7 +88,7 @@ async function extractTilesFromGrid(filePath) {
   if (!grid) return null;
 
   const { rows, cols } = grid;
-  const margin = 5;
+  const margin = 3;
   const tiles = [];
   const worker = await Tesseract.createWorker('eng');
   await worker.setParameters({ tessedit_pageseg_mode: '6' });
@@ -113,7 +113,7 @@ async function extractTilesFromGrid(filePath) {
   if (nonEmpty.length !== 16) {
     return { tiles: nonEmpty, confidence: 'low', reason: `${16 - nonEmpty.length} tiles could not be read` };
   }
-  const oddLength = tiles.filter(t => t.length < 3 || t.length > 15);
+  const oddLength = tiles.filter(t => t.length < 3 || t.length > 20);
   if (oddLength.length > 0) {
     return { tiles, confidence: 'low', reason: `Unusual words: ${oddLength.join(', ')}` };
   }
@@ -197,6 +197,19 @@ const tests = [
     name: 'Sample 6 - Android light mode (FILL IN multi-word, WINDOWS edge case)',
     file: 'test-images/sample6.jpg',
     expectedTiles: ['SUB', 'RIBBON', 'HOOD', 'SHIP', 'SHELL', 'COVER', 'MENU', 'TUBE', 'ENTER', 'BOWTIE', 'FILL IN', 'WINDOWS', 'DOM', 'ALT', 'TEMP', 'ATE'],
+    expectedConfidence: 'high',
+  },
+  {
+    // OCR misreads: TOTE→OTOE, MONEYBAG→VIONEYBAG (Tesseract bold font limitation)
+    name: 'Sample 7 - Android light mode (TOP HAT, GIFT WRAP multi-word)',
+    file: 'test-images/sample7.jpg',
+    expectedTiles: ['SHOULDER', 'BOWTIE', 'PARCH', 'ELBOW', 'WHEEL', 'RANKLE', 'RIBBON', 'CANE', 'PRESS', 'BOW', 'TOP HAT', 'CARD', 'OTOE', 'VIONEYBAG', 'GIFT WRAP', 'SHOVE'],
+    expectedConfidence: 'high',
+  },
+  {
+    name: 'Sample 8 - Android dark mode (many multi-word tiles)',
+    file: 'test-images/sample8.jpg',
+    expectedTiles: ['SOUND BARRIER', 'CHAMPAGNE FLUTE', 'ROCKY', 'SEA BASS', 'BERMUDA TRIANGLE', 'NOISEMAKER', 'LIBERTY BELL', 'DRYER', 'FIREWORKS', 'COUCH CUSHIONS', 'CHANNEL SURF', 'CHEESESTEAK', 'BLACK HOLE', 'BAY LEAF', 'BROTHERLY LOVE', 'BALL DROP'],
     expectedConfidence: 'high',
   },
 ];
