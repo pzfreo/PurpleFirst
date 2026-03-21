@@ -298,6 +298,93 @@ function App() {
     dragIndexRef.current = null;
   };
 
+  // Mobile touch drag and drop
+  const touchDragRef = useRef<{
+    index: number;
+    startX: number;
+    startY: number;
+    ghost: HTMLDivElement | null;
+    moved: boolean;
+  } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent, index: number) => {
+    if (paintingColor !== null) return;
+    const touch = e.touches[0];
+    touchDragRef.current = {
+      index,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      ghost: null,
+      moved: false,
+    };
+  };
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const ref = touchDragRef.current;
+    if (!ref) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - ref.startX;
+    const dy = touch.clientY - ref.startY;
+
+    // Only start drag after 8px movement
+    if (!ref.moved && Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+    ref.moved = true;
+    e.preventDefault();
+
+    // Create ghost element on first move
+    if (!ref.ghost) {
+      const tile = (e.target as HTMLElement).closest('.tile') as HTMLElement;
+      if (!tile) return;
+      const rect = tile.getBoundingClientRect();
+      const ghost = document.createElement('div');
+      ghost.className = 'tile drag-ghost';
+      ghost.textContent = tile.textContent;
+      ghost.style.cssText = `
+        position: fixed; width: ${rect.width}px; height: ${rect.height}px;
+        background: ${tile.style.backgroundColor}; color: ${tile.style.color};
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 13px; border-radius: 8px;
+        text-transform: uppercase; letter-spacing: 0.5px;
+        pointer-events: none; z-index: 1000; opacity: 0.9;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+        transform: scale(1.1); text-align: center; padding: 4px;
+      `;
+      document.body.appendChild(ghost);
+      ref.ghost = ghost;
+      tile.style.opacity = '0.3';
+    }
+
+    ref.ghost.style.left = `${touch.clientX - ref.ghost.offsetWidth / 2}px`;
+    ref.ghost.style.top = `${touch.clientY - ref.ghost.offsetHeight / 2}px`;
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    const ref = touchDragRef.current;
+    if (!ref) return;
+
+    // Restore original tile opacity
+    const origTile = document.querySelector(`[data-tile-index="${ref.index}"]`) as HTMLElement;
+    if (origTile) origTile.style.opacity = '';
+
+    if (ref.ghost) {
+      ref.ghost.remove();
+    }
+
+    if (ref.moved) {
+      e.preventDefault();
+      // Find which tile we're over
+      const touch = e.changedTouches[0];
+      const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement;
+      const targetTile = dropTarget?.closest('[data-tile-index]') as HTMLElement;
+      if (targetTile) {
+        const toIndex = Number(targetTile.dataset.tileIndex);
+        handleSwap(ref.index, toIndex);
+      }
+    }
+
+    touchDragRef.current = null;
+  }, [handleSwap]);
+
   const handleUndo = () => {
     if (history.length === 0) return;
     const prev = history[history.length - 1];
@@ -467,7 +554,7 @@ function App() {
       <p className="hint">
         {paintingColor !== null
           ? `Tap a row to paint it ${COLORS[paintingColor].name}`
-          : 'Tap a tile, then tap another to swap them'}
+          : 'Tap or drag tiles to swap them'}
       </p>
 
       <div className="grid">
@@ -492,6 +579,9 @@ function App() {
               onDragStart={e => handleDragStart(e, i)}
               onDragOver={e => e.preventDefault()}
               onDrop={e => handleDrop(e, i)}
+              onTouchStart={e => handleTouchStart(e, i)}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
             >
               {word}
             </div>

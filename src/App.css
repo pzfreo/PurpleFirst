@@ -94,6 +94,7 @@ h1 {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: none;
   transition: transform 0.15s, box-shadow 0.15s, background-color 0.3s;
   text-transform: uppercase;
   letter-spacing: 0.5px;
