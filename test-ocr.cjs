@@ -187,6 +187,12 @@ const tests = [
     expectedTiles: ['POUND', 'PLAIN', 'OBJECT', 'CROWN', 'JUMP', 'MARK', 'FRANK', 'RICH', 'GOAL', 'STRAIGHT', 'POINT', 'BISHOP', 'KING', 'BLUNT', 'FROST', 'CAPTURE'],
     expectedConfidence: 'high',
   },
+  {
+    name: 'Sample 5 - Android light mode (with overlay thumbnail)',
+    file: 'test-images/sample5.jpg',
+    expectedTiles: ['PLASTER', 'SLING', 'HIDE', 'BLANKET', 'PELT', 'SINK', 'RED', 'COAT', 'SKIN', 'COVER', 'CAST', 'INKS', 'SIMON', 'HURL', 'KINS', 'CAPTURE'],
+    expectedConfidence: 'high',
+  },
 ];
 
 async function run() {
