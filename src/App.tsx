@@ -301,83 +301,92 @@ function App() {
     dragIndexRef.current = null;
   };
 
-  // Mobile touch drag and drop
+  // Mobile touch drag and drop (Waffle-style: lift tile, follow finger, highlight target)
   const touchDragRef = useRef<{
     index: number;
     startX: number;
     startY: number;
-    ghost: HTMLDivElement | null;
+    originX: number;
+    originY: number;
+    tile: HTMLElement | null;
     moved: boolean;
+    lastTarget: HTMLElement | null;
   } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent, index: number) => {
     if (paintingColor !== null) return;
     const touch = e.touches[0];
+    const tile = (e.target as HTMLElement).closest('.tile') as HTMLElement;
+    if (!tile) return;
+    const rect = tile.getBoundingClientRect();
     touchDragRef.current = {
       index,
       startX: touch.clientX,
       startY: touch.clientY,
-      ghost: null,
+      originX: rect.left + rect.width / 2,
+      originY: rect.top + rect.height / 2,
+      tile,
       moved: false,
+      lastTarget: null,
     };
   };
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     const ref = touchDragRef.current;
-    if (!ref) return;
+    if (!ref || !ref.tile) return;
     const touch = e.touches[0];
     const dx = touch.clientX - ref.startX;
     const dy = touch.clientY - ref.startY;
 
     // Only start drag after 8px movement
     if (!ref.moved && Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-    ref.moved = true;
+    if (!ref.moved) {
+      ref.moved = true;
+      ref.tile.classList.add('dragging');
+    }
     e.preventDefault();
 
-    // Create ghost element on first move
-    if (!ref.ghost) {
-      const tile = (e.target as HTMLElement).closest('.tile') as HTMLElement;
-      if (!tile) return;
-      const rect = tile.getBoundingClientRect();
-      const ghost = document.createElement('div');
-      ghost.className = 'tile drag-ghost';
-      ghost.textContent = tile.textContent;
-      ghost.style.cssText = `
-        position: fixed; width: ${rect.width}px; height: ${rect.height}px;
-        background: ${tile.style.backgroundColor}; color: ${tile.style.color};
-        display: flex; align-items: center; justify-content: center;
-        font-weight: 700; font-size: 13px; border-radius: 8px;
-        text-transform: uppercase; letter-spacing: 0.5px;
-        pointer-events: none; z-index: 1000; opacity: 0.9;
-        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-        transform: scale(1.1); text-align: center; padding: 4px;
-      `;
-      document.body.appendChild(ghost);
-      ref.ghost = ghost;
-      tile.style.opacity = '0.3';
-    }
+    // Move the actual tile with transform
+    ref.tile.style.transform = `translate(${dx}px, ${dy}px) scale(1.15)`;
 
-    ref.ghost.style.left = `${touch.clientX - ref.ghost.offsetWidth / 2}px`;
-    ref.ghost.style.top = `${touch.clientY - ref.ghost.offsetHeight / 2}px`;
+    // Find tile under finger (hide dragged tile briefly for elementFromPoint)
+    ref.tile.style.pointerEvents = 'none';
+    const el = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement;
+    ref.tile.style.pointerEvents = '';
+    const targetTile = el?.closest('[data-tile-index]') as HTMLElement;
+
+    // Highlight drop target
+    if (ref.lastTarget && ref.lastTarget !== targetTile) {
+      ref.lastTarget.classList.remove('drag-over');
+    }
+    if (targetTile && targetTile !== ref.tile) {
+      targetTile.classList.add('drag-over');
+      ref.lastTarget = targetTile;
+    } else {
+      ref.lastTarget = null;
+    }
   }, []);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
     const ref = touchDragRef.current;
     if (!ref) return;
 
-    // Restore original tile opacity
-    const origTile = document.querySelector(`[data-tile-index="${ref.index}"]`) as HTMLElement;
-    if (origTile) origTile.style.opacity = '';
-
-    if (ref.ghost) {
-      ref.ghost.remove();
+    // Clean up drag styles
+    if (ref.tile) {
+      ref.tile.classList.remove('dragging');
+      ref.tile.style.transform = '';
+    }
+    if (ref.lastTarget) {
+      ref.lastTarget.classList.remove('drag-over');
     }
 
     if (ref.moved) {
       e.preventDefault();
       // Find which tile we're over
       const touch = e.changedTouches[0];
+      if (ref.tile) ref.tile.style.pointerEvents = 'none';
       const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement;
+      if (ref.tile) ref.tile.style.pointerEvents = '';
       const targetTile = dropTarget?.closest('[data-tile-index]') as HTMLElement;
       if (targetTile) {
         const toIndex = Number(targetTile.dataset.tileIndex);

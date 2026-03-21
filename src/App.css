@@ -109,6 +109,18 @@ h1 {
   z-index: 10;
 }
 
+.tile.dragging {
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: none;
+}
+
+.tile.drag-over {
+  transform: scale(0.9);
+  box-shadow: 0 0 0 3px #7B2D8B;
+  opacity: 0.7;
+}
+
 .tile.paint-mode {
   cursor: crosshair;
 }
