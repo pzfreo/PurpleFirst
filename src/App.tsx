@@ -4,7 +4,7 @@ import './App.css';
 
 const ROW_COLORS = [
   { name: 'Purple', bg: '#7B2D8B', text: '#fff' },
-  { name: 'Lilac', bg: '#C8A2D4', text: '#000' },
+  { name: 'Lilac', bg: '#9BADE5', text: '#000' },
   { name: 'Yellow', bg: '#F9DF6D', text: '#000' },
   { name: 'Green', bg: '#A0C35A', text: '#000' },
 ];
