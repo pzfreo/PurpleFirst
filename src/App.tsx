@@ -118,7 +118,7 @@ function extractTilesFromImage(file: File): Promise<OcrResult> {
         }
 
         const { rows, cols } = grid;
-        const margin = 8;
+        const margin = 5;
         const tiles: string[] = [];
 
         for (let r = 0; r < 4; r++) {

@@ -88,7 +88,7 @@ async function extractTilesFromGrid(filePath) {
   if (!grid) return null;
 
   const { rows, cols } = grid;
-  const margin = 8;
+  const margin = 5;
   const tiles = [];
   const worker = await Tesseract.createWorker('eng');
   await worker.setParameters({ tessedit_pageseg_mode: '6' });
@@ -191,6 +191,12 @@ const tests = [
     name: 'Sample 5 - Android light mode (with overlay thumbnail)',
     file: 'test-images/sample5.jpg',
     expectedTiles: ['PLASTER', 'SLING', 'HIDE', 'BLANKET', 'PELT', 'SINK', 'RED', 'COAT', 'SKIN', 'COVER', 'CAST', 'INKS', 'SIMON', 'HURL', 'KINS', 'CAPTURE'],
+    expectedConfidence: 'high',
+  },
+  {
+    name: 'Sample 6 - Android light mode (FILL IN multi-word, WINDOWS edge case)',
+    file: 'test-images/sample6.jpg',
+    expectedTiles: ['SUB', 'RIBBON', 'HOOD', 'SHIP', 'SHELL', 'COVER', 'MENU', 'TUBE', 'ENTER', 'BOWTIE', 'FILL IN', 'WINDOWS', 'DOM', 'ALT', 'TEMP', 'ATE'],
     expectedConfidence: 'high',
   },
 ];
