@@ -9,6 +9,10 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
+// Unregister any existing service worker and clear caches
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js');
+  navigator.serviceWorker.getRegistrations().then(regs =>
+    regs.forEach(r => r.unregister())
+  );
+  caches.keys().then(names => names.forEach(n => caches.delete(n)));
 }
