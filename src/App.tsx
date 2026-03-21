@@ -9,22 +9,20 @@ const ROW_COLORS = [
   { name: 'Green', bg: '#A0C35A', text: '#000' },
 ];
 
-const IGNORED_WORDS = new Set([
-  'CREATE', 'FOUR', 'GROUPS', 'OF', 'GROUP', 'SHUFFLE', 'SUBMIT',
-  'DESELECT', 'ALL', 'MISTAKES', 'REMAINING',
-  'NYTIMES', 'COM', 'GAMES', 'HTTPS', 'WWW', 'THE', 'NEW',
-  'YORK', 'CONNECTIONS', 'MENU', 'PLAY', 'TODAY', 'YESTERDAY',
-]);
-
 /** Extract tile words from OCR raw text. Order is preserved (top-to-bottom, left-to-right). */
 function extractTilesFromText(text: string): string[] {
-  const words = text.split(/\s+/)
-    .map(w => w.toUpperCase().replace(/[^A-Z]/g, ''))
-    .filter(w =>
-      w.length >= 3 &&
-      w.length <= 12 &&
-      !IGNORED_WORDS.has(w)
-    );
+  // Isolate the grid region between known markers
+  const upper = text.toUpperCase();
+  const startMarker = upper.indexOf('FOUR!');
+  const endMarker = upper.indexOf('MISTAKES');
+  const gridText = startMarker >= 0 && endMarker > startMarker
+    ? text.substring(startMarker + 5, endMarker)
+    : text;
+
+  // Split into individual words, clean each
+  const words = gridText.split(/\s+/)
+    .map(w => w.toUpperCase().replace(/[^A-Z-]/g, '').replace(/^-+|-+$/g, ''))
+    .filter(w => w.length >= 2);
 
   // Deduplicate preserving order
   const seen = new Set<string>();
