@@ -16,127 +16,23 @@ const IGNORED_WORDS = new Set([
   'YORK', 'CONNECTIONS', 'MENU', 'PLAY', 'TODAY', 'YESTERDAY',
 ]);
 
-/** Load a File as an Image element */
-function loadImage(file: File | Blob): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
-  });
-}
+/** Extract tile words from OCR raw text. Order is preserved (top-to-bottom, left-to-right). */
+function extractTilesFromText(text: string): string[] {
+  const words = text.split(/\s+/)
+    .map(w => w.toUpperCase().replace(/[^A-Z]/g, ''))
+    .filter(w =>
+      w.length >= 3 &&
+      w.length <= 12 &&
+      !IGNORED_WORDS.has(w)
+    );
 
-/** Crop the image to the grid area using OCR bounding boxes */
-function cropToGrid(img: HTMLImageElement, data: Tesseract.Page): HTMLCanvasElement | null {
-  if (!data.blocks) return null;
-
-  // Collect bounding boxes of all candidate tile words
-  const boxes: { x0: number; y0: number; x1: number; y1: number }[] = [];
-  for (const block of data.blocks) {
-    for (const para of block.paragraphs) {
-      for (const line of para.lines) {
-        for (const word of line.words) {
-          const clean = word.text.toUpperCase().replace(/[^A-Z]/g, '');
-          if (clean.length >= 3 && clean.length <= 12 && word.confidence > 50) {
-            boxes.push(word.bbox);
-          }
-        }
-      }
-    }
-  }
-
-  if (boxes.length < 10) return null; // Not enough words found
-
-  // Find the bounding box of the grid (where the cluster of words is)
-  const ys = boxes.map(b => b.y0).concat(boxes.map(b => b.y1)).sort((a, b) => a - b);
-  // Use the 10th percentile as top and 90th as bottom to exclude outliers
-  const topY = ys[Math.floor(ys.length * 0.1)];
-  const bottomY = ys[Math.floor(ys.length * 0.9)];
-
-  // Add some padding
-  const pad = Math.floor((bottomY - topY) * 0.15);
-  const cropTop = Math.max(0, topY - pad);
-  const cropBottom = Math.min(img.height, bottomY + pad);
-  const cropHeight = cropBottom - cropTop;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = img.width;
-  canvas.height = cropHeight;
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(img, 0, cropTop, img.width, cropHeight, 0, 0, img.width, cropHeight);
-  return canvas;
-}
-
-/** Extract tile labels from OCR data, preserving order and supporting multi-word tiles */
-function extractTiles(data: Tesseract.Page): string[] {
-  if (!data.blocks) return [];
-
-  // Collect all candidate words with their positions
-  const candidates: { text: string; confidence: number; y: number; x: number }[] = [];
-  for (const block of data.blocks) {
-    for (const para of block.paragraphs) {
-      for (const line of para.lines) {
-        for (const word of line.words) {
-          candidates.push({
-            text: word.text.toUpperCase().replace(/[^A-Z]/g, ''),
-            confidence: word.confidence,
-            y: word.bbox.y0,
-            x: word.bbox.x0,
-          });
-        }
-      }
-    }
-  }
-
-  // Filter to plausible tile words
-  const filtered = candidates.filter(w =>
-    w.text.length >= 2 &&
-    w.text.length <= 12 &&
-    w.confidence > 50 &&
-    !IGNORED_WORDS.has(w.text)
-  );
-
-  // Group words into rows by similar y position (within 5% of image height)
-  // Then within each row, sort by x position
-  // This preserves the grid reading order
-  if (filtered.length === 0) return [];
-
-  // Sort by y then x
-  filtered.sort((a, b) => a.y - b.y || a.x - b.x);
-
-  // Group into rows: words within close y are on the same row
-  const rows: typeof filtered[number][][] = [];
-  let currentRow: typeof filtered[number][] = [filtered[0]];
-
-  for (let i = 1; i < filtered.length; i++) {
-    const prevY = currentRow[0].y;
-    // If y is within ~30px, same row (tiles are usually 80-150px tall)
-    if (Math.abs(filtered[i].y - prevY) < 40) {
-      currentRow.push(filtered[i]);
-    } else {
-      rows.push(currentRow);
-      currentRow = [filtered[i]];
-    }
-  }
-  rows.push(currentRow);
-
-  // Sort each row by x, then flatten
-  const results: string[] = [];
+  // Deduplicate preserving order
   const seen = new Set<string>();
-  for (const row of rows) {
-    row.sort((a, b) => a.x - b.x);
-
-    // Try to group adjacent words in this row that might form a multi-word tile
-    // For now: each word is its own tile unless they're very close horizontally
-    for (const w of row) {
-      if (!seen.has(w.text)) {
-        seen.add(w.text);
-        results.push(w.text);
-      }
-    }
-  }
-
-  return results;
+  return words.filter(w => {
+    if (seen.has(w)) return false;
+    seen.add(w);
+    return true;
+  });
 }
 
 function App() {
@@ -226,36 +122,16 @@ function App() {
     setScanning(true);
     setScanError(null);
     try {
-      const img = await loadImage(file);
-
-      // First pass: OCR on full image to find word positions
-      const { data: fullData } = await Tesseract.recognize(file, 'eng', {
+      const { data } = await Tesseract.recognize(file, 'eng', {
         logger: () => {},
       });
-
-      // Try to crop to just the grid area using detected word positions
-      const croppedCanvas = cropToGrid(img, fullData);
-      let extracted: string[];
-
-      if (croppedCanvas) {
-        // Second pass: OCR on cropped grid for better accuracy
-        const croppedBlob = await new Promise<Blob>((res, rej) =>
-          croppedCanvas.toBlob(b => b ? res(b) : rej(new Error('crop failed')), 'image/png')
-        );
-        const { data: croppedData } = await Tesseract.recognize(croppedBlob, 'eng', {
-          logger: () => {},
-        });
-        extracted = extractTiles(croppedData);
-      } else {
-        // Fallback: use the full image results
-        extracted = extractTiles(fullData);
-      }
+      const extracted = extractTilesFromText(data.text);
       // Always show edit screen so user can verify/fix
       const display = extracted.slice(0, 16);
       if (extracted.length < 16) {
         setScanError(`Found ${extracted.length} words — need 16. Please fix below.`);
       } else if (extracted.length > 16) {
-        setScanError(`Found ${extracted.length} words — trimmed to 16. Please verify below.`);
+        setScanError(`Found ${extracted.length} words — showing first 16. Please verify below.`);
       }
       setEditText(display.join('\n'));
       setEditMode(true);
@@ -300,7 +176,6 @@ function App() {
       if (!prev) return prev;
       setHistory(h => [...h, prev]);
       const next = [...prev];
-      // Only shuffle unlocked tiles
       const unlocked = next
         .map((w, i) => ({ w, i }))
         .filter(({ i }) => !lockedRows.has(Math.floor(i / 4)));
