@@ -9,28 +9,48 @@ const ROW_COLORS = [
   { name: 'Green', bg: '#A0C35A', text: '#000' },
 ];
 
-/** Extract tile words from OCR raw text. Order is preserved (top-to-bottom, left-to-right). */
-function extractTilesFromText(text: string): string[] {
-  // Isolate the grid region between known markers
+interface OcrResult {
+  tiles: string[];
+  confidence: 'high' | 'low';
+  reason?: string;
+}
+
+/** Extract tile words from OCR raw text with confidence scoring. */
+function extractTilesFromText(text: string): OcrResult {
   const upper = text.toUpperCase();
   const startMarker = upper.indexOf('FOUR!');
   const endMarker = upper.indexOf('MISTAKES');
-  const gridText = startMarker >= 0 && endMarker > startMarker
+
+  const hasMarkers = startMarker >= 0 && endMarker > startMarker;
+  const gridText = hasMarkers
     ? text.substring(startMarker + 5, endMarker)
     : text;
 
-  // Split into individual words, clean each
   const words = gridText.split(/\s+/)
     .map(w => w.toUpperCase().replace(/[^A-Z-]/g, '').replace(/^-+|-+$/g, ''))
     .filter(w => w.length >= 2);
 
   // Deduplicate preserving order
   const seen = new Set<string>();
-  return words.filter(w => {
+  const tiles = words.filter(w => {
     if (seen.has(w)) return false;
     seen.add(w);
     return true;
   });
+
+  // Confidence scoring
+  if (!hasMarkers) {
+    return { tiles, confidence: 'low', reason: 'Could not find grid markers in image' };
+  }
+  if (tiles.length !== 16) {
+    return { tiles, confidence: 'low', reason: `Found ${tiles.length} words instead of 16` };
+  }
+  // All tiles should be 3-10 chars (typical Connections words)
+  const oddLength = tiles.filter(t => t.length < 3 || t.length > 10);
+  if (oddLength.length > 0) {
+    return { tiles, confidence: 'low', reason: `Unusual words: ${oddLength.join(', ')}` };
+  }
+  return { tiles, confidence: 'high' };
 }
 
 function App() {
@@ -123,16 +143,20 @@ function App() {
       const { data } = await Tesseract.recognize(file, 'eng', {
         logger: () => {},
       });
-      const extracted = extractTilesFromText(data.text);
-      // Always show edit screen so user can verify/fix
-      const display = extracted.slice(0, 16);
-      if (extracted.length < 16) {
-        setScanError(`Found ${extracted.length} words — need 16. Please fix below.`);
-      } else if (extracted.length > 16) {
-        setScanError(`Found ${extracted.length} words — showing first 16. Please verify below.`);
+      const { tiles, confidence, reason } = extractTilesFromText(data.text);
+
+      if (confidence === 'high') {
+        // Go straight to the grid
+        setWords(tiles);
+        setHistory([]);
+        setLockedRows(new Set());
+        setSelectedIndex(null);
+      } else {
+        // Show edit screen for verification
+        setScanError(reason || `Found ${tiles.length} words — please verify.`);
+        setEditText(tiles.slice(0, 16).join('\n'));
+        setEditMode(true);
       }
-      setEditText(display.join('\n'));
-      setEditMode(true);
     } catch {
       setScanError('OCR failed. Try entering words manually.');
       setEditMode(true);

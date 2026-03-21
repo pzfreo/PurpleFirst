@@ -4,7 +4,9 @@ function extractTilesFromText(text) {
   const upper = text.toUpperCase();
   const startMarker = upper.indexOf('FOUR!');
   const endMarker = upper.indexOf('MISTAKES');
-  const gridText = startMarker >= 0 && endMarker > startMarker
+
+  const hasMarkers = startMarker >= 0 && endMarker > startMarker;
+  const gridText = hasMarkers
     ? text.substring(startMarker + 5, endMarker)
     : text;
 
@@ -13,25 +15,37 @@ function extractTilesFromText(text) {
     .filter(w => w.length >= 2);
 
   const seen = new Set();
-  return words.filter(w => {
+  const tiles = words.filter(w => {
     if (seen.has(w)) return false;
     seen.add(w);
     return true;
   });
+
+  if (!hasMarkers) {
+    return { tiles, confidence: 'low', reason: 'Could not find grid markers in image' };
+  }
+  if (tiles.length !== 16) {
+    return { tiles, confidence: 'low', reason: `Found ${tiles.length} words instead of 16` };
+  }
+  const oddLength = tiles.filter(t => t.length < 3 || t.length > 10);
+  if (oddLength.length > 0) {
+    return { tiles, confidence: 'low', reason: `Unusual words: ${oddLength.join(', ')}` };
+  }
+  return { tiles, confidence: 'high' };
 }
 
 const tests = [
   {
     name: 'Sample 1 - single word tiles',
     file: 'test-images/sample1.jpg',
-    expected: ['POUND', 'PLAIN', 'OBJECT', 'CROWN', 'JUMP', 'MARK', 'FRANK', 'RICH', 'GOAL', 'STRAIGHT', 'POINT', 'BISHOP', 'KING', 'BLUNT', 'FROST', 'CAPTURE'],
+    expectedTiles: ['POUND', 'PLAIN', 'OBJECT', 'CROWN', 'JUMP', 'MARK', 'FRANK', 'RICH', 'GOAL', 'STRAIGHT', 'POINT', 'BISHOP', 'KING', 'BLUNT', 'FROST', 'CAPTURE'],
+    expectedConfidence: 'high',
   },
   {
     name: 'Sample 2 - has multi-word tiles (HOT WATER, TEA BAG, YO-YO)',
     file: 'test-images/sample2.jpg',
-    // Multi-word tiles come through as separate words, user fixes in edit screen
-    // YO-YO keeps hyphen, TEABAG is OCR artifact (merged)
-    expected: ['HOT', 'KITE', 'WIND', 'WATER', 'KEY', 'TEABAG', 'LIGHTNING', 'BALLOON', 'JAM', 'PITCH', 'ARROW', 'BIND', 'SCALE', 'YO-YO', 'TONE', 'ROCKET', 'PICKLE'],
+    expectedTiles: ['HOT', 'KITE', 'WIND', 'WATER', 'KEY', 'TEABAG', 'LIGHTNING', 'BALLOON', 'JAM', 'PITCH', 'ARROW', 'BIND', 'SCALE', 'YO-YO', 'TONE', 'ROCKET', 'PICKLE'],
+    expectedConfidence: 'low', // 17 words, needs user edit
   },
 ];
 
@@ -40,30 +54,23 @@ async function run() {
 
   for (const test of tests) {
     console.log(`\n=== ${test.name} ===`);
-    console.log(`File: ${test.file}`);
     const { data } = await Tesseract.recognize(test.file, 'eng');
-    console.log('Raw text:', JSON.stringify(data.text));
 
     const result = extractTilesFromText(data.text);
-    console.log(`Extracted ${result.length} tiles:`, result.join(', '));
-    console.log(`Expected ${test.expected.length} tiles:`, test.expected.join(', '));
+    console.log(`Extracted ${result.tiles.length} tiles: ${result.tiles.join(', ')}`);
+    console.log(`Confidence: ${result.confidence}${result.reason ? ` (${result.reason})` : ''}`);
 
-    const missing = test.expected.filter(w => !result.includes(w));
-    const junk = result.filter(w => !test.expected.includes(w));
+    const missing = test.expectedTiles.filter(w => !result.tiles.includes(w));
+    const junk = result.tiles.filter(w => !test.expectedTiles.includes(w));
+    const confOk = result.confidence === test.expectedConfidence;
 
-    if (missing.length === 0 && junk.length === 0) {
+    if (missing.length === 0 && junk.length === 0 && confOk) {
       console.log('✅ PASS');
     } else {
       allPassed = false;
       if (missing.length > 0) console.log('❌ MISSING:', missing.join(', '));
       if (junk.length > 0) console.log('❌ JUNK:', junk.join(', '));
-    }
-
-    // Additional check: count should be 16 or close
-    if (result.length < 16) {
-      console.log(`⚠️  Only ${result.length} tiles (need 16)`);
-    } else if (result.length > 16) {
-      console.log(`⚠️  ${result.length} tiles (expected ~16, user trims in edit screen)`);
+      if (!confOk) console.log(`❌ CONFIDENCE: got ${result.confidence}, expected ${test.expectedConfidence}`);
     }
   }
 
