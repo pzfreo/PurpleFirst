@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import Tesseract from 'tesseract.js';
 import './App.css';
 
@@ -218,6 +218,24 @@ function App() {
   const [paintingColor, setPaintingColor] = useState<number | null>(null);
   const [history, setHistory] = useState<{ words: string[]; rowColors: RowColorMap }[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+
+  // Check for updates on load and every 5 minutes
+  useEffect(() => {
+    const checkUpdate = () => {
+      fetch(`${import.meta.env.BASE_URL}version.json?_=${Date.now()}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.version && data.version !== __APP_VERSION__) {
+            setUpdateAvailable(true);
+          }
+        })
+        .catch(() => {}); // silently ignore fetch errors
+    };
+    checkUpdate();
+    const interval = setInterval(checkUpdate, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
   const [scanError, setScanError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -530,7 +548,14 @@ function App() {
           </button>
           {scanError && <p className="error">{scanError}</p>}
         </div>
-        <div className="version">v{__APP_VERSION__}</div>
+        <div className="version">
+          v{__APP_VERSION__}
+          {updateAvailable && (
+            <button className="update-btn" onClick={() => window.location.reload()}>
+              Update available — tap to refresh
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -646,7 +671,14 @@ function App() {
         <button onClick={handleNew}>New</button>
       </div>
 
-      <div className="version">v{__APP_VERSION__}</div>
+      <div className="version">
+          v{__APP_VERSION__}
+          {updateAvailable && (
+            <button className="update-btn" onClick={() => window.location.reload()}>
+              Update available — tap to refresh
+            </button>
+          )}
+        </div>
     </div>
   );
 }
