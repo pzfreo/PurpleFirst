@@ -11,125 +11,7 @@ const COLORS = [
 
 const NEUTRAL = { bg: '#E8E4DE', text: '#000' };
 
-/** Load image, detect if dark, and apply adaptive preprocessing for OCR */
-function preprocessImage(file: File): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const w = img.width, h = img.height;
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0);
-
-      const imageData = ctx.getImageData(0, 0, w, h);
-      const d = imageData.data;
-
-      // Compute grayscale and average brightness
-      const gray = new Float32Array(w * h);
-      let totalBrightness = 0;
-      for (let y = 0; y < h; y++)
-        for (let x = 0; x < w; x++) {
-          const i = (y * w + x) * 4;
-          const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-          gray[y * w + x] = g;
-          totalBrightness += g;
-        }
-      const avgBrightness = totalBrightness / (w * h);
-
-      // Apply heavy preprocessing for dark images (e.g. iPhone dark mode)
-      if (avgBrightness < 160) {
-        // Build integral image for fast local average
-        const integral = new Float64Array((w + 1) * (h + 1));
-        for (let y = 1; y <= h; y++)
-          for (let x = 1; x <= w; x++)
-            integral[y * (w + 1) + x] = gray[(y - 1) * w + (x - 1)]
-              + integral[(y - 1) * (w + 1) + x]
-              + integral[y * (w + 1) + (x - 1)]
-              - integral[(y - 1) * (w + 1) + (x - 1)];
-
-        const getAvg = (x1: number, y1: number, x2: number, y2: number) => {
-          x1 = Math.max(0, x1); y1 = Math.max(0, y1);
-          x2 = Math.min(w, x2); y2 = Math.min(h, y2);
-          const area = (x2 - x1) * (y2 - y1);
-          if (area <= 0) return 128;
-          return (integral[y2 * (w + 1) + x2] - integral[y1 * (w + 1) + x2]
-                - integral[y2 * (w + 1) + x1] + integral[y1 * (w + 1) + x1]) / area;
-        };
-
-        // Adaptive threshold: dark bg → white, light tiles → preserve text
-        // Use dead zone (100-120) to avoid artifacts at tile/background borders
-        const radius = 60;
-        for (let y = 0; y < h; y++)
-          for (let x = 0; x < w; x++) {
-            const i = (y * w + x) * 4;
-            const localAvg = getAvg(x - radius, y - radius, x + radius, y + radius);
-            const px = gray[y * w + x];
-            let val: number;
-            if (localAvg < 100) val = px > localAvg + 50 ? 0 : 255;
-            else if (localAvg > 120) val = px < localAvg - 30 ? 0 : 255;
-            else val = 255; // ambiguous zone (tile borders) → white
-            d[i] = val; d[i + 1] = val; d[i + 2] = val;
-          }
-
-        // Remove long horizontal black lines (tile borders confuse OCR segmentation)
-        for (let y = 0; y < h; y++) {
-          let runStart = -1;
-          for (let x = 0; x <= w; x++) {
-            const isBlack = x < w && d[(y * w + x) * 4] < 128;
-            if (isBlack && runStart < 0) runStart = x;
-            if (!isBlack && runStart >= 0) {
-              if (x - runStart > 100) {
-                for (let xx = runStart; xx < x; xx++)
-                  for (let dy = -2; dy <= 2; dy++) {
-                    const yy = y + dy;
-                    if (yy >= 0 && yy < h) {
-                      const ii = (yy * w + xx) * 4;
-                      d[ii] = 255; d[ii + 1] = 255; d[ii + 2] = 255;
-                    }
-                  }
-              }
-              runStart = -1;
-            }
-          }
-        }
-
-        // Remove long vertical black lines
-        for (let x = 0; x < w; x++) {
-          let runStart = -1;
-          for (let y = 0; y <= h; y++) {
-            const isBlack = y < h && d[(y * w + x) * 4] < 128;
-            if (isBlack && runStart < 0) runStart = y;
-            if (!isBlack && runStart >= 0) {
-              if (y - runStart > 100) {
-                for (let yy = runStart; yy < y; yy++)
-                  for (let dx = -2; dx <= 2; dx++) {
-                    const xx = x + dx;
-                    if (xx >= 0 && xx < w) {
-                      const ii = (yy * w + xx) * 4;
-                      d[ii] = 255; d[ii + 1] = 255; d[ii + 2] = 255;
-                    }
-                  }
-              }
-              runStart = -1;
-            }
-          }
-        }
-
-        ctx.putImageData(imageData, 0, 0);
-      }
-
-      canvas.toBlob(blob => {
-        if (blob) resolve(blob);
-        else reject(new Error('Failed to process image'));
-      }, 'image/png');
-      URL.revokeObjectURL(img.src);
-    };
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
-  });
-}
+// --- Grid detection and per-tile OCR ---
 
 interface OcrResult {
   tiles: string[];
@@ -137,6 +19,152 @@ interface OcrResult {
   reason?: string;
 }
 
+function filterBands(bands: number[][], expected: number): number[][] {
+  if (bands.length <= expected) return bands;
+  const sorted = bands.map(b => ({ start: b[0], end: b[1], h: b[1] - b[0] }))
+    .sort((a, b) => b.h - a.h).slice(0, expected);
+  sorted.sort((a, b) => a.start - b.start);
+  return sorted.map(b => [b.start, b.end]);
+}
+
+function detectGrid(gray: Uint8Array, w: number, h: number, isDark: boolean) {
+  // Horizontal projection: fraction of tile-colored pixels per row
+  const hProj = new Float32Array(h);
+  for (let y = 0; y < h; y++) {
+    let count = 0;
+    for (let x = 0; x < w; x++) {
+      const g = gray[y * w + x];
+      if (isDark ? (g > 150 && g < 230) : (g > 200 && g < 250)) count++;
+    }
+    hProj[y] = count / w;
+  }
+
+  const rawBands: number[][] = [];
+  let inBand = false, bandStart = 0;
+  for (let y = 0; y < h; y++) {
+    if (hProj[y] > 0.3 && !inBand) { inBand = true; bandStart = y; }
+    if (hProj[y] < 0.1 && inBand) {
+      if (y - bandStart > 30) rawBands.push([bandStart, y]);
+      inBand = false;
+    }
+  }
+  if (inBand && h - bandStart > 30) rawBands.push([bandStart, h]);
+  const rows = filterBands(rawBands, 4);
+  if (rows.length !== 4) return null;
+
+  // Vertical projection within grid bounds
+  const gridTop = rows[0][0], gridBot = rows[3][1];
+  const vProj = new Float32Array(w);
+  for (let x = 0; x < w; x++) {
+    let count = 0;
+    for (let y = gridTop; y < gridBot; y++) {
+      const g = gray[y * w + x];
+      if (isDark ? (g > 150 && g < 230) : (g > 200 && g < 250)) count++;
+    }
+    vProj[x] = count / (gridBot - gridTop);
+  }
+
+  const rawVBands: number[][] = [];
+  inBand = false;
+  for (let x = 0; x < w; x++) {
+    if (vProj[x] > 0.3 && !inBand) { inBand = true; bandStart = x; }
+    if (vProj[x] < 0.1 && inBand) {
+      if (x - bandStart > 30) rawVBands.push([bandStart, x]);
+      inBand = false;
+    }
+  }
+  if (inBand && w - bandStart > 30) rawVBands.push([bandStart, w]);
+  const cols = filterBands(rawVBands, 4);
+  if (cols.length !== 4) return null;
+
+  return { rows, cols };
+}
+
+/** Load image, detect 4x4 grid, OCR each tile individually */
+function extractTilesFromImage(file: File): Promise<OcrResult> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = async () => {
+      try {
+        const w = img.width, h = img.height;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        const data = ctx.getImageData(0, 0, w, h).data;
+
+        // Compute grayscale
+        const gray = new Uint8Array(w * h);
+        let totalBrightness = 0;
+        for (let y = 0; y < h; y++)
+          for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            const g = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+            gray[y * w + x] = g;
+            totalBrightness += g;
+          }
+        const isDark = (totalBrightness / (w * h)) < 160;
+
+        const grid = detectGrid(gray, w, h, isDark);
+        if (!grid) {
+          // Fallback: full-image OCR with text extraction
+          const blob = await new Promise<Blob>((res, rej) => {
+            canvas.toBlob(b => b ? res(b) : rej(new Error('Failed')), 'image/png');
+          });
+          const { data: ocrData } = await Tesseract.recognize(blob, 'eng', { logger: () => {} });
+          resolve(extractTilesFromText(ocrData.text));
+          return;
+        }
+
+        const { rows, cols } = grid;
+        const margin = 8;
+        const tiles: string[] = [];
+
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 4; c++) {
+            const x1 = cols[c][0] + margin, y1 = rows[r][0] + margin;
+            const tw = cols[c][1] - cols[c][0] - margin * 2;
+            const th = rows[r][1] - rows[r][0] - margin * 2;
+            const tileCanvas = document.createElement('canvas');
+            tileCanvas.width = tw;
+            tileCanvas.height = th;
+            const tileCtx = tileCanvas.getContext('2d')!;
+            tileCtx.drawImage(img, x1, y1, tw, th, 0, 0, tw, th);
+
+            const tileBlob = await new Promise<Blob>((res, rej) => {
+              tileCanvas.toBlob(b => b ? res(b) : rej(new Error('Failed')), 'image/png');
+            });
+            const result = await Tesseract.recognize(tileBlob, 'eng', { logger: () => {} });
+            const text = result.data.text.trim().split(/\n/).map((l: string) => l.trim()).join(' ')
+              .toUpperCase().replace(/[^A-Z -]/g, '').trim();
+            tiles.push(text);
+          }
+        }
+
+        const nonEmpty = tiles.filter(t => t.length > 0);
+        if (nonEmpty.length !== 16) {
+          resolve({ tiles: nonEmpty, confidence: 'low', reason: `${16 - nonEmpty.length} tiles could not be read` });
+          return;
+        }
+        const oddLength = tiles.filter(t => t.length < 3 || t.length > 15);
+        if (oddLength.length > 0) {
+          resolve({ tiles, confidence: 'low', reason: `Unusual words: ${oddLength.join(', ')}` });
+          return;
+        }
+        resolve({ tiles, confidence: 'high' });
+      } catch (err) {
+        reject(err);
+      } finally {
+        URL.revokeObjectURL(img.src);
+      }
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+/** Text-based fallback extraction from full-image OCR text */
 function extractTilesFromText(text: string): OcrResult {
   const upper = text.toUpperCase();
   const startMarker = upper.indexOf('FOUR!');
@@ -151,7 +179,6 @@ function extractTilesFromText(text: string): OcrResult {
     .map(w => w.toUpperCase().replace(/[^A-Z-]/g, '').replace(/^-+|-+$/g, ''))
     .filter(w => w.length >= 3)
     .filter(w => {
-      // Filter OCR noise: words with all same char (TTTTT), or mostly same char
       const unique = new Set(w.replace(/-/g, ''));
       return unique.size >= 2 || w.length <= 3;
     });
@@ -299,11 +326,7 @@ function App() {
     setScanning(true);
     setScanError(null);
     try {
-      const processed = await preprocessImage(file);
-      const { data } = await Tesseract.recognize(processed, 'eng', {
-        logger: () => {},
-      });
-      const { tiles, confidence, reason } = extractTilesFromText(data.text);
+      const { tiles, confidence, reason } = await extractTilesFromImage(file);
 
       if (confidence === 'high') {
         setWords(tiles);
