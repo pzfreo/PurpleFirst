@@ -261,7 +261,7 @@ function App() {
     return (
       <div className="app">
         <h1>Purple First</h1>
-        <p className="subtitle">Solve Connections — hardest category first!</p>
+        <p className="subtitle">A helper for the NYT Connections puzzle — scan or enter the 16 words, swap tiles to group them, then paint each row with a colour to lock in your answer.</p>
         <div className="landing">
           <input
             ref={fileInputRef}
