@@ -530,6 +530,7 @@ function App() {
           </button>
           {scanError && <p className="error">{scanError}</p>}
         </div>
+        <div className="version">v{__APP_VERSION__}</div>
       </div>
     );
   }
