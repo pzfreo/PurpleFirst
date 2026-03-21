@@ -120,7 +120,12 @@ function extractTilesFromText(text) {
 
   const words = gridText.split(/\s+/)
     .map(w => w.toUpperCase().replace(/[^A-Z-]/g, '').replace(/^-+|-+$/g, ''))
-    .filter(w => w.length >= 3);
+    .filter(w => w.length >= 3)
+    .filter(w => {
+      // Filter OCR noise: words with all same char (TTTTT), or mostly same char
+      const unique = new Set(w.replace(/-/g, ''));
+      return unique.size >= 2 || w.length <= 3;
+    });
 
   const seen = new Set();
   const tiles = words.filter(w => {
