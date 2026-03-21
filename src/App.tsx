@@ -12,13 +12,20 @@ const ROW_COLORS = [
 const IGNORED_WORDS = new Set([
   'CREATE', 'FOUR', 'GROUPS', 'OF', 'GROUP', 'SHUFFLE', 'SUBMIT',
   'DESELECT', 'ALL', 'MISTAKES', 'REMAINING', 'MISTAKESREMAINING',
+  // Common browser / NYT UI fragments OCR picks up
+  'NYTIMES', 'COM', 'GAMES', 'COR', 'HTTPS', 'WWW', 'THE', 'NEW',
+  'YORK', 'CONNECTIONS', 'MENU', 'PLAY', 'TODAY', 'YESTERDAY',
 ]);
 
 function extractWords(text: string): string[] {
   const words = text
     .split(/\s+/)
     .map(w => w.replace(/[^A-Z]/g, ''))
-    .filter(w => w.length >= 2 && !IGNORED_WORDS.has(w));
+    .filter(w =>
+      w.length >= 3 &&        // skip 1-2 char OCR noise
+      w.length <= 12 &&       // skip long URL/UI fragments
+      !IGNORED_WORDS.has(w)
+    );
 
   // Deduplicate while preserving order
   const seen = new Set<string>();
