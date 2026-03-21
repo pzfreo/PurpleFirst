@@ -212,6 +212,12 @@ const tests = [
     expectedTiles: ['SOUND BARRIER', 'CHAMPAGNE FLUTE', 'ROCKY', 'SEA BASS', 'BERMUDA TRIANGLE', 'NOISEMAKER', 'LIBERTY BELL', 'DRYER', 'FIREWORKS', 'COUCH CUSHIONS', 'CHANNEL SURF', 'CHEESESTEAK', 'BLACK HOLE', 'BAY LEAF', 'BROTHERLY LOVE', 'BALL DROP'],
     expectedConfidence: 'high',
   },
+  {
+    name: 'Sample 9 - Android light mode (3-word tile GRUMPY OLD MAN, accented BOUTONNIERE)',
+    file: 'test-images/sample9.jpg',
+    expectedTiles: ['RACECAR', 'LAPEL PIN', 'SCREWDRIVER', 'WOLF EEL', 'BOLT CUTTER', 'GREYHOUND', 'SCARF RING', 'GRUMPY OLD MAN', 'COSMOPOLITAN', 'LAVALIER', 'CLOWNFISH', 'AWARENESS RIBBON', 'TALKING DOLL', 'CHOW MEIN', 'BOUTONNIERE', 'SEA BREEZE'],
+    expectedConfidence: 'high',
+  },
 ];
 
 async function run() {
