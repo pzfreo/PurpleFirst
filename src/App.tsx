@@ -2,12 +2,14 @@ import { useState, useRef, useCallback } from 'react';
 import Tesseract from 'tesseract.js';
 import './App.css';
 
-const ROW_COLORS = [
+const COLORS = [
   { name: 'Purple', bg: '#7B2D8B', text: '#fff' },
   { name: 'Lilac', bg: '#9BADE5', text: '#000' },
   { name: 'Yellow', bg: '#F9DF6D', text: '#000' },
   { name: 'Green', bg: '#A0C35A', text: '#000' },
 ];
+
+const NEUTRAL = { bg: '#E8E4DE', text: '#000' };
 
 interface OcrResult {
   tiles: string[];
@@ -15,7 +17,6 @@ interface OcrResult {
   reason?: string;
 }
 
-/** Extract tile words from OCR raw text with confidence scoring. */
 function extractTilesFromText(text: string): OcrResult {
   const upper = text.toUpperCase();
   const startMarker = upper.indexOf('FOUR!');
@@ -30,7 +31,6 @@ function extractTilesFromText(text: string): OcrResult {
     .map(w => w.toUpperCase().replace(/[^A-Z-]/g, '').replace(/^-+|-+$/g, ''))
     .filter(w => w.length >= 2);
 
-  // Deduplicate preserving order
   const seen = new Set<string>();
   const tiles = words.filter(w => {
     if (seen.has(w)) return false;
@@ -38,14 +38,12 @@ function extractTilesFromText(text: string): OcrResult {
     return true;
   });
 
-  // Confidence scoring
   if (!hasMarkers) {
     return { tiles, confidence: 'low', reason: 'Could not find grid markers in image' };
   }
   if (tiles.length !== 16) {
     return { tiles, confidence: 'low', reason: `Found ${tiles.length} words instead of 16` };
   }
-  // All tiles should be 3-10 chars (typical Connections words)
   const oddLength = tiles.filter(t => t.length < 3 || t.length > 10);
   if (oddLength.length > 0) {
     return { tiles, confidence: 'low', reason: `Unusual words: ${oddLength.join(', ')}` };
@@ -53,36 +51,58 @@ function extractTilesFromText(text: string): OcrResult {
   return { tiles, confidence: 'high' };
 }
 
+// rowColors: map from row index (0-3) to color index (0-3), or null if unassigned
+type RowColorMap = Record<number, number | null>;
+
 function App() {
   const [words, setWords] = useState<string[] | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editText, setEditText] = useState('');
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [lockedRows, setLockedRows] = useState<Set<number>>(new Set());
-  const [history, setHistory] = useState<string[][]>([]);
+  const [rowColors, setRowColors] = useState<RowColorMap>({ 0: null, 1: null, 2: null, 3: null });
+  const [paintingColor, setPaintingColor] = useState<number | null>(null);
+  const [history, setHistory] = useState<{ words: string[]; rowColors: RowColorMap }[]>([]);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const pushHistory = useCallback(() => {
+    if (words) {
+      setHistory(h => [...h, { words: [...words], rowColors: { ...rowColors } }]);
+    }
+  }, [words, rowColors]);
+
   const handleSwap = useCallback((from: number, to: number) => {
     if (from === to) return;
-    const fromRow = Math.floor(from / 4);
-    const toRow = Math.floor(to / 4);
-    if (lockedRows.has(fromRow) || lockedRows.has(toRow)) return;
-
+    pushHistory();
     setWords(prev => {
       if (!prev) return prev;
-      setHistory(h => [...h, prev]);
       const next = [...prev];
       [next[from], next[to]] = [next[to], next[from]];
       return next;
     });
-  }, [lockedRows]);
+  }, [pushHistory]);
 
   // Tap-to-swap
   const handleTileTap = (index: number) => {
-    const row = Math.floor(index / 4);
-    if (lockedRows.has(row)) return;
+    // If in painting mode, paint the row
+    if (paintingColor !== null) {
+      const row = Math.floor(index / 4);
+      // Check if this colour is already assigned to another row
+      const existingRow = Object.entries(rowColors).find(([, c]) => c === paintingColor);
+      pushHistory();
+      setRowColors(prev => {
+        const next = { ...prev };
+        // Remove colour from any existing row
+        if (existingRow) {
+          next[Number(existingRow[0])] = null;
+        }
+        next[row] = paintingColor;
+        return next;
+      });
+      setPaintingColor(null);
+      return;
+    }
 
     if (selectedIndex === null) {
       setSelectedIndex(index);
@@ -98,11 +118,6 @@ function App() {
   const dragIndexRef = useRef<number | null>(null);
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
-    const row = Math.floor(index / 4);
-    if (lockedRows.has(row)) {
-      e.preventDefault();
-      return;
-    }
     e.dataTransfer.effectAllowed = 'move';
     dragIndexRef.current = index;
   };
@@ -119,20 +134,23 @@ function App() {
     if (history.length === 0) return;
     const prev = history[history.length - 1];
     setHistory(h => h.slice(0, -1));
-    setWords(prev);
+    setWords(prev.words);
+    setRowColors(prev.rowColors);
   };
 
-  const toggleLockRow = (row: number) => {
-    setLockedRows(prev => {
-      const next = new Set(prev);
-      if (next.has(row)) {
-        next.delete(row);
-      } else {
-        next.add(row);
-      }
-      return next;
-    });
-    setSelectedIndex(null);
+  const handlePaintClick = (colorIdx: number) => {
+    if (paintingColor === colorIdx) {
+      // Toggle off
+      setPaintingColor(null);
+    } else {
+      setPaintingColor(colorIdx);
+      setSelectedIndex(null);
+    }
+  };
+
+  const handleClearColor = (row: number) => {
+    pushHistory();
+    setRowColors(prev => ({ ...prev, [row]: null }));
   };
 
   // OCR
@@ -146,13 +164,12 @@ function App() {
       const { tiles, confidence, reason } = extractTilesFromText(data.text);
 
       if (confidence === 'high') {
-        // Go straight to the grid
         setWords(tiles);
         setHistory([]);
-        setLockedRows(new Set());
+        setRowColors({ 0: null, 1: null, 2: null, 3: null });
         setSelectedIndex(null);
+        setPaintingColor(null);
       } else {
-        // Show edit screen for verification
         setScanError(reason || `Found ${tiles.length} words — please verify.`);
         setEditText(tiles.slice(0, 16).join('\n'));
         setEditMode(true);
@@ -185,8 +202,9 @@ function App() {
     if (newWords.length === 16) {
       setWords(newWords);
       setHistory([]);
-      setLockedRows(new Set());
+      setRowColors({ 0: null, 1: null, 2: null, 3: null });
       setSelectedIndex(null);
+      setPaintingColor(null);
       setEditMode(false);
     } else {
       alert(`Need exactly 16 words (got ${newWords.length})`);
@@ -194,23 +212,32 @@ function App() {
   };
 
   const handleShuffle = () => {
+    pushHistory();
     setWords(prev => {
       if (!prev) return prev;
-      setHistory(h => [...h, prev]);
       const next = [...prev];
-      const unlocked = next
+      // Only shuffle unpainted tiles
+      const unpainted = next
         .map((w, i) => ({ w, i }))
-        .filter(({ i }) => !lockedRows.has(Math.floor(i / 4)));
-      const unlockedWords = unlocked.map(u => u.w);
-      for (let i = unlockedWords.length - 1; i > 0; i--) {
+        .filter(({ i }) => rowColors[Math.floor(i / 4)] === null);
+      const unpaintedWords = unpainted.map(u => u.w);
+      for (let i = unpaintedWords.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [unlockedWords[i], unlockedWords[j]] = [unlockedWords[j], unlockedWords[i]];
+        [unpaintedWords[i], unpaintedWords[j]] = [unpaintedWords[j], unpaintedWords[i]];
       }
-      unlocked.forEach((u, idx) => {
-        next[u.i] = unlockedWords[idx];
+      unpainted.forEach((u, idx) => {
+        next[u.i] = unpaintedWords[idx];
       });
       return next;
     });
+  };
+
+  const handleNew = () => {
+    setWords(null);
+    setHistory([]);
+    setRowColors({ 0: null, 1: null, 2: null, 3: null });
+    setSelectedIndex(null);
+    setPaintingColor(null);
   };
 
   // Landing screen
@@ -219,7 +246,6 @@ function App() {
       <div className="app">
         <h1>Purple First</h1>
         <p className="subtitle">Solve Connections — hardest category first!</p>
-
         <div className="landing">
           <input
             ref={fileInputRef}
@@ -268,29 +294,36 @@ function App() {
   }
 
   // Main grid
+  const usedColors = new Set(Object.values(rowColors).filter(c => c !== null));
+
   return (
     <div className="app">
       <h1>Purple First</h1>
-      <p className="hint">Tap a tile, then tap another to swap them</p>
+      <p className="hint">
+        {paintingColor !== null
+          ? `Tap a row to paint it ${COLORS[paintingColor].name}`
+          : 'Tap a tile, then tap another to swap them'}
+      </p>
 
       <div className="grid">
         {words!.map((word, i) => {
           const row = Math.floor(i / 4);
-          const color = ROW_COLORS[row];
+          const colorIdx = rowColors[row];
+          const color = colorIdx !== null ? COLORS[colorIdx] : NEUTRAL;
           const isSelected = selectedIndex === i;
-          const isLocked = lockedRows.has(row);
+          const isPainted = colorIdx !== null;
 
           return (
             <div
               key={i}
               data-tile-index={i}
-              className={`tile${isSelected ? ' selected' : ''}${isLocked ? ' locked' : ''}`}
+              className={`tile${isSelected ? ' selected' : ''}${isPainted ? ' painted' : ''}${paintingColor !== null ? ' paint-mode' : ''}`}
               style={{
                 backgroundColor: color.bg,
                 color: color.text,
               }}
               onClick={() => handleTileTap(i)}
-              draggable={!isLocked}
+              draggable={paintingColor === null}
               onDragStart={e => handleDragStart(e, i)}
               onDragOver={e => e.preventDefault()}
               onDrop={e => handleDrop(e, i)}
@@ -301,28 +334,48 @@ function App() {
         })}
       </div>
 
-      <div className="row-locks">
-        {ROW_COLORS.map((c, i) => (
-          <button
-            key={i}
-            className={`lock-btn${lockedRows.has(i) ? ' active' : ''}`}
-            style={{
-              borderColor: c.bg,
-              backgroundColor: lockedRows.has(i) ? c.bg : 'transparent',
-              color: lockedRows.has(i) ? c.text : c.bg,
-            }}
-            onClick={() => toggleLockRow(i)}
-          >
-            {lockedRows.has(i) ? '🔒' : '🔓'} {c.name}
-          </button>
-        ))}
+      <div className="color-bar">
+        <span className="color-bar-label">Paint row:</span>
+        {COLORS.map((c, i) => {
+          const assignedRow = Object.entries(rowColors).find(([, ci]) => ci === i);
+          return (
+            <button
+              key={i}
+              className={`color-btn${paintingColor === i ? ' active' : ''}${assignedRow ? ' used' : ''}`}
+              style={{
+                backgroundColor: c.bg,
+                color: c.text,
+                borderColor: paintingColor === i ? '#333' : c.bg,
+              }}
+              onClick={() => handlePaintClick(i)}
+              title={assignedRow ? `${c.name} (row ${Number(assignedRow[0]) + 1}) — tap to reassign` : c.name}
+            >
+              {c.name}
+            </button>
+          );
+        })}
       </div>
+
+      {usedColors.size > 0 && (
+        <div className="painted-rows">
+          {[0, 1, 2, 3].map(row => {
+            const ci = rowColors[row];
+            if (ci === null) return null;
+            return (
+              <div key={row} className="painted-row-tag" style={{ backgroundColor: COLORS[ci].bg, color: COLORS[ci].text }}>
+                Row {row + 1}: {COLORS[ci].name}
+                <button className="clear-tag" onClick={() => handleClearColor(row)} style={{ color: COLORS[ci].text }}>✕</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="button-row">
         <button onClick={handleUndo} disabled={history.length === 0}>Undo</button>
         <button onClick={handleShuffle}>Shuffle</button>
         <button onClick={handleEditOpen}>Edit</button>
-        <button onClick={() => { setWords(null); setHistory([]); setLockedRows(new Set()); setSelectedIndex(null); }}>New</button>
+        <button onClick={handleNew}>New</button>
       </div>
     </div>
   );

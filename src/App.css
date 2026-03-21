@@ -94,7 +94,7 @@ h1 {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
-  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  transition: transform 0.15s, box-shadow 0.15s, background-color 0.3s;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   padding: 4px;
@@ -108,33 +108,79 @@ h1 {
   z-index: 10;
 }
 
-.tile.locked {
-  opacity: 0.7;
-  cursor: default;
+.tile.paint-mode {
+  cursor: crosshair;
 }
 
-/* Row lock buttons */
-.row-locks {
+.tile.painted {
+  opacity: 0.85;
+}
+
+/* Colour bar */
+.color-bar {
   display: flex;
   gap: 6px;
+  align-items: center;
   justify-content: center;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 
-.lock-btn {
-  padding: 4px 10px;
+.color-bar-label {
   font-size: 12px;
-  font-weight: 600;
-  border: 2px solid;
+  color: #999;
+  margin-right: 2px;
+}
+
+.color-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 3px solid;
   border-radius: 16px;
   cursor: pointer;
   transition: all 0.2s;
-  background: transparent;
 }
 
-.lock-btn:hover {
-  opacity: 0.8;
+.color-btn.active {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  border-color: #333 !important;
+}
+
+.color-btn.used {
+  opacity: 0.6;
+}
+
+/* Painted row tags */
+.painted-rows {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.painted-row-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.clear-tag {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+
+.clear-tag:hover {
+  opacity: 1;
 }
 
 /* Button row */
