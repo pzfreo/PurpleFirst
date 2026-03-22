@@ -236,6 +236,24 @@ function App() {
     const interval = setInterval(checkUpdate, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Pick up shared image from Web Share Target
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('shared') !== '1') return;
+
+    // Clean up the URL so refreshing doesn't re-trigger
+    window.history.replaceState({}, '', window.location.pathname);
+
+    caches.open('share-target-v1').then(async (cache) => {
+      const response = await cache.match('/shared-image');
+      if (!response) return;
+      const blob = await response.blob();
+      await cache.delete('/shared-image');
+      const file = new File([blob], 'shared-screenshot.png', { type: blob.type });
+      handleScan(file);
+    }).catch(() => {});
+  }, []);
   const [scanError, setScanError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 

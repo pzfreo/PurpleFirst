@@ -9,10 +9,9 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// Unregister any existing service worker and clear caches
+// Register service worker for Web Share Target support
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(regs =>
-    regs.forEach(r => r.unregister())
-  );
-  caches.keys().then(names => names.forEach(n => caches.delete(n)));
+  navigator.serviceWorker.register('/PurpleFirst/sw.js').catch(() => {
+    // SW registration failed — share target won't work but app is fine
+  });
 }
