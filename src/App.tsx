@@ -365,9 +365,8 @@ function App() {
     if (newWords.length === 16) {
       setWords(newWords);
       setHistory([]);
-      setRowColors({ 0: null, 1: null, 2: null, 3: null });
-      setSelectedIndex(null);
-      setPaintingColor(null);
+      setTileColors(Array(16).fill(null));
+      setSelectedTiles(new Set());
       setEditMode(false);
     } else {
       alert(`Need exactly 16 words (got ${newWords.length})`);
@@ -379,7 +378,6 @@ function App() {
     setWords(prev => {
       if (!prev) return prev;
       const next = [...prev];
-      const nextColors = [...tileColors];
       // Only shuffle ungrouped tiles
       const ungrouped = next
         .map((w, i) => ({ w, i, c: tileColors[i] }))
@@ -466,7 +464,6 @@ function App() {
   }
 
   // Main grid
-  const groupedCount = tileColors.filter(c => c !== null).length;
   const usedColorSet = new Set(tileColors.filter(c => c !== null));
 
   return (
