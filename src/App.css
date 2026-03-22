@@ -104,7 +104,7 @@ h1 {
 
 .tile.selected {
   transform: scale(0.92);
-  box-shadow: 0 0 0 3px #333;
+  box-shadow: 0 0 0 4px #fff, 0 0 0 7px #333;
   z-index: 10;
 }
 
@@ -143,6 +143,38 @@ h1 {
 
 .color-btn.used {
   opacity: 0.55;
+}
+
+/* Group tags with clear button */
+.group-tags {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.group-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.clear-tag {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+
+.clear-tag:hover {
+  opacity: 1;
 }
 
 /* Button row */

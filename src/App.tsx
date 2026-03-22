@@ -320,6 +320,11 @@ function App() {
     setSelectedTiles(new Set());
   };
 
+  const handleClearColorGroup = (colorIdx: number) => {
+    pushHistory();
+    setTileColors(prev => prev.map(c => c === colorIdx ? null : c));
+  };
+
   // OCR
   const handleScan = async (file: File) => {
     setScanning(true);
@@ -502,26 +507,38 @@ function App() {
       </div>
 
       <div className="color-bar">
-        {COLORS.map((c, i) => {
-          const hasGroup = usedColorSet.has(i);
-          return (
-            <button
-              key={i}
-              className={`color-btn${hasGroup ? ' used' : ''}`}
-              style={{
-                backgroundColor: c.bg,
-                color: c.text,
-                borderColor: c.bg,
-              }}
-              onClick={() => handleAssignColor(i)}
-              disabled={selectedTiles.size !== 4}
-              title={c.name}
-            >
-              {c.name}
-            </button>
-          );
-        })}
+        {COLORS.map((c, i) => (
+          <button
+            key={i}
+            className={`color-btn${usedColorSet.has(i) ? ' used' : ''}`}
+            style={{
+              backgroundColor: c.bg,
+              color: c.text,
+              borderColor: c.bg,
+            }}
+            onClick={() => handleAssignColor(i)}
+            disabled={selectedTiles.size !== 4}
+            title={c.name}
+          >
+            {c.name}
+          </button>
+        ))}
       </div>
+
+      {usedColorSet.size > 0 && (
+        <div className="group-tags">
+          {COLORS.map((c, i) => {
+            if (!usedColorSet.has(i)) return null;
+            const count = tileColors.filter(tc => tc === i).length;
+            return (
+              <div key={i} className="group-tag" style={{ backgroundColor: c.bg, color: c.text }}>
+                {c.name} ({count})
+                <button className="clear-tag" onClick={() => handleClearColorGroup(i)} style={{ color: c.text }}>✕</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="button-row">
         {selectedTiles.size > 0 && (
