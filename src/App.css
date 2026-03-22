@@ -145,36 +145,9 @@ h1 {
   opacity: 0.55;
 }
 
-/* Group tags with clear button */
-.group-tags {
-  display: flex;
-  gap: 6px;
-  justify-content: center;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-
-.group-tag {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.clear-tag {
-  background: none;
-  border: none;
+.color-btn.clearable {
+  opacity: 0.75;
   cursor: pointer;
-  font-size: 13px;
-  padding: 0 2px;
-  opacity: 0.7;
-}
-
-.clear-tag:hover {
-  opacity: 1;
 }
 
 /* Button row */
