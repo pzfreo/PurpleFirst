@@ -512,7 +512,7 @@ function App() {
           return (
             <button
               key={i}
-              className={`color-btn${isUsed ? ' used' : ''}${isUsed && selectedTiles.size === 0 ? ' clearable' : ''}`}
+              className={`color-btn${isUsed && selectedTiles.size !== 4 ? ' used' : ''}${isUsed && selectedTiles.size === 0 ? ' clearable' : ''}`}
               style={{
                 backgroundColor: c.bg,
                 color: c.text,
