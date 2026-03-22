@@ -206,17 +206,13 @@ function extractTilesFromText(text: string): OcrResult {
   return { tiles, confidence: 'high' };
 }
 
-// rowColors: map from row index (0-3) to color index (0-3), or null if unassigned
-type RowColorMap = Record<number, number | null>;
-
 function App() {
   const [words, setWords] = useState<string[] | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editText, setEditText] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [rowColors, setRowColors] = useState<RowColorMap>({ 0: null, 1: null, 2: null, 3: null });
-  const [paintingColor, setPaintingColor] = useState<number | null>(null);
-  const [history, setHistory] = useState<{ words: string[]; rowColors: RowColorMap }[]>([]);
+  const [selectedTiles, setSelectedTiles] = useState<Set<number>>(new Set());
+  const [tileColors, setTileColors] = useState<(number | null)[]>(Array(16).fill(null));
+  const [history, setHistory] = useState<{ words: string[]; tileColors: (number | null)[] }[]>([]);
   const [scanning, setScanning] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
@@ -259,201 +255,69 @@ function App() {
 
   const pushHistory = useCallback(() => {
     if (words) {
-      setHistory(h => [...h, { words: [...words], rowColors: { ...rowColors } }]);
+      setHistory(h => [...h, { words: [...words], tileColors: [...tileColors] }]);
     }
-  }, [words, rowColors]);
+  }, [words, tileColors]);
 
-  const handleSwap = useCallback((from: number, to: number) => {
-    if (from === to) return;
-    pushHistory();
-    setWords(prev => {
-      if (!prev) return prev;
-      const next = [...prev];
-      [next[from], next[to]] = [next[to], next[from]];
+  // Tap to toggle tile selection (max 4)
+  const handleTileTap = (index: number) => {
+    setSelectedTiles(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else if (next.size < 4) {
+        next.add(index);
+      }
       return next;
     });
-  }, [pushHistory]);
+  };
 
-  // Tap-to-swap
-  const handleTileTap = (index: number) => {
-    // If in painting mode, paint the row
-    if (paintingColor !== null) {
-      const row = Math.floor(index / 4);
-      const existingRow = Object.entries(rowColors).find(([, c]) => c === paintingColor);
-      pushHistory();
+  // Assign selected tiles to a color group
+  const handleAssignColor = (colorIdx: number) => {
+    if (selectedTiles.size !== 4) return;
+    pushHistory();
 
-      const nextColors: RowColorMap = { ...rowColors };
-      if (existingRow) {
-        nextColors[Number(existingRow[0])] = null;
-      }
-      nextColors[row] = paintingColor;
-      setRowColors(nextColors);
-      setPaintingColor(null);
+    const nextColors = [...tileColors];
+    // Clear this color from any previously assigned tiles
+    for (let i = 0; i < 16; i++) {
+      if (nextColors[i] === colorIdx) nextColors[i] = null;
+    }
+    // Assign to selected tiles
+    selectedTiles.forEach(i => { nextColors[i] = colorIdx; });
 
-      // If all four colours are now assigned, reorder rows: Purple first
-      const allAssigned = Object.values(nextColors).every(c => c !== null);
-      if (allAssigned && words) {
-        // Build new word order: row with colour 0 (Purple) first, then 1 (Lilac), etc.
-        const rowOrder = COLORS.map((_, ci) =>
-          Number(Object.entries(nextColors).find(([, c]) => c === ci)![0])
-        );
-        const reordered: string[] = [];
-        const finalColors: RowColorMap = { 0: null, 1: null, 2: null, 3: null };
-        rowOrder.forEach((oldRow, newRow) => {
-          for (let col = 0; col < 4; col++) {
-            reordered.push(words[oldRow * 4 + col]);
+    // Check if all 16 tiles are now assigned — auto-reorder
+    const allAssigned = nextColors.every(c => c !== null);
+    if (allAssigned && words) {
+      const reordered: string[] = [];
+      const finalColors: (number | null)[] = [];
+      // Group by color: Purple (0) first, then Lilac (1), Yellow (2), Green (3)
+      for (let ci = 0; ci < 4; ci++) {
+        for (let i = 0; i < 16; i++) {
+          if (nextColors[i] === ci) {
+            reordered.push(words[i]);
+            finalColors.push(ci);
           }
-          finalColors[newRow] = nextColors[oldRow];
-        });
-        setWords(reordered);
-        setRowColors(finalColors);
+        }
       }
-      return;
-    }
-
-    if (selectedIndex === null) {
-      setSelectedIndex(index);
-    } else if (selectedIndex === index) {
-      setSelectedIndex(null);
+      setWords(reordered);
+      setTileColors(finalColors);
     } else {
-      handleSwap(selectedIndex, index);
-      setSelectedIndex(null);
+      setTileColors(nextColors);
     }
+    setSelectedTiles(new Set());
   };
-
-  // Desktop drag and drop
-  const dragIndexRef = useRef<number | null>(null);
-
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    e.dataTransfer.effectAllowed = 'move';
-    dragIndexRef.current = index;
-  };
-
-  const handleDrop = (e: React.DragEvent, toIndex: number) => {
-    e.preventDefault();
-    if (dragIndexRef.current !== null) {
-      handleSwap(dragIndexRef.current, toIndex);
-    }
-    dragIndexRef.current = null;
-  };
-
-  // Mobile touch drag and drop (Waffle-style: lift tile, follow finger, highlight target)
-  const touchDragRef = useRef<{
-    index: number;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-    tile: HTMLElement | null;
-    moved: boolean;
-    lastTarget: HTMLElement | null;
-  } | null>(null);
-
-  const handleTouchStart = (e: React.TouchEvent, index: number) => {
-    if (paintingColor !== null) return;
-    const touch = e.touches[0];
-    const tile = (e.target as HTMLElement).closest('.tile') as HTMLElement;
-    if (!tile) return;
-    const rect = tile.getBoundingClientRect();
-    touchDragRef.current = {
-      index,
-      startX: touch.clientX,
-      startY: touch.clientY,
-      originX: rect.left + rect.width / 2,
-      originY: rect.top + rect.height / 2,
-      tile,
-      moved: false,
-      lastTarget: null,
-    };
-  };
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    const ref = touchDragRef.current;
-    if (!ref || !ref.tile) return;
-    const touch = e.touches[0];
-    const dx = touch.clientX - ref.startX;
-    const dy = touch.clientY - ref.startY;
-
-    // Only start drag after 8px movement
-    if (!ref.moved && Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-    if (!ref.moved) {
-      ref.moved = true;
-      ref.tile.classList.add('dragging');
-    }
-    e.preventDefault();
-
-    // Move the actual tile with transform
-    ref.tile.style.transform = `translate(${dx}px, ${dy}px) scale(1.15)`;
-
-    // Find tile under finger (hide dragged tile briefly for elementFromPoint)
-    ref.tile.style.pointerEvents = 'none';
-    const el = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement;
-    ref.tile.style.pointerEvents = '';
-    const targetTile = el?.closest('[data-tile-index]') as HTMLElement;
-
-    // Highlight drop target
-    if (ref.lastTarget && ref.lastTarget !== targetTile) {
-      ref.lastTarget.classList.remove('drag-over');
-    }
-    if (targetTile && targetTile !== ref.tile) {
-      targetTile.classList.add('drag-over');
-      ref.lastTarget = targetTile;
-    } else {
-      ref.lastTarget = null;
-    }
-  }, []);
-
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const ref = touchDragRef.current;
-    if (!ref) return;
-
-    // Clean up drag styles
-    if (ref.tile) {
-      ref.tile.classList.remove('dragging');
-      ref.tile.style.transform = '';
-    }
-    if (ref.lastTarget) {
-      ref.lastTarget.classList.remove('drag-over');
-    }
-
-    if (ref.moved) {
-      e.preventDefault();
-      // Find which tile we're over
-      const touch = e.changedTouches[0];
-      if (ref.tile) ref.tile.style.pointerEvents = 'none';
-      const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement;
-      if (ref.tile) ref.tile.style.pointerEvents = '';
-      const targetTile = dropTarget?.closest('[data-tile-index]') as HTMLElement;
-      if (targetTile) {
-        const toIndex = Number(targetTile.dataset.tileIndex);
-        handleSwap(ref.index, toIndex);
-      }
-    }
-
-    touchDragRef.current = null;
-  }, [handleSwap]);
 
   const handleUndo = () => {
     if (history.length === 0) return;
     const prev = history[history.length - 1];
     setHistory(h => h.slice(0, -1));
     setWords(prev.words);
-    setRowColors(prev.rowColors);
+    setTileColors(prev.tileColors);
+    setSelectedTiles(new Set());
   };
 
-  const handlePaintClick = (colorIdx: number) => {
-    if (paintingColor === colorIdx) {
-      // Toggle off
-      setPaintingColor(null);
-    } else {
-      setPaintingColor(colorIdx);
-      setSelectedIndex(null);
-    }
-  };
-
-  const handleClearColor = (row: number) => {
-    pushHistory();
-    setRowColors(prev => ({ ...prev, [row]: null }));
+  const handleDeselectAll = () => {
+    setSelectedTiles(new Set());
   };
 
   // OCR
@@ -466,9 +330,8 @@ function App() {
       if (confidence === 'high') {
         setWords(tiles);
         setHistory([]);
-        setRowColors({ 0: null, 1: null, 2: null, 3: null });
-        setSelectedIndex(null);
-        setPaintingColor(null);
+        setTileColors(Array(16).fill(null));
+        setSelectedTiles(new Set());
       } else {
         setScanError(reason || `Found ${tiles.length} words — please verify.`);
         setEditText(tiles.slice(0, 16).join('\n'));
@@ -516,28 +379,29 @@ function App() {
     setWords(prev => {
       if (!prev) return prev;
       const next = [...prev];
-      // Only shuffle unpainted tiles
-      const unpainted = next
-        .map((w, i) => ({ w, i }))
-        .filter(({ i }) => rowColors[Math.floor(i / 4)] === null);
-      const unpaintedWords = unpainted.map(u => u.w);
-      for (let i = unpaintedWords.length - 1; i > 0; i--) {
+      const nextColors = [...tileColors];
+      // Only shuffle ungrouped tiles
+      const ungrouped = next
+        .map((w, i) => ({ w, i, c: tileColors[i] }))
+        .filter(({ c }) => c === null);
+      const ungroupedWords = ungrouped.map(u => u.w);
+      for (let i = ungroupedWords.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [unpaintedWords[i], unpaintedWords[j]] = [unpaintedWords[j], unpaintedWords[i]];
+        [ungroupedWords[i], ungroupedWords[j]] = [ungroupedWords[j], ungroupedWords[i]];
       }
-      unpainted.forEach((u, idx) => {
-        next[u.i] = unpaintedWords[idx];
+      ungrouped.forEach((u, idx) => {
+        next[u.i] = ungroupedWords[idx];
       });
       return next;
     });
+    setSelectedTiles(new Set());
   };
 
   const handleNew = () => {
     setWords(null);
     setHistory([]);
-    setRowColors({ 0: null, 1: null, 2: null, 3: null });
-    setSelectedIndex(null);
-    setPaintingColor(null);
+    setTileColors(Array(16).fill(null));
+    setSelectedTiles(new Set());
   };
 
   // Landing screen
@@ -545,7 +409,7 @@ function App() {
     return (
       <div className="app">
         <h1>Purple First</h1>
-        <p className="subtitle">A helper for the NYT Connections puzzle — scan or enter the 16 words, swap tiles to group them, then paint each row with a colour to lock in your answer.</p>
+        <p className="subtitle">A helper for the NYT Connections puzzle — scan or enter the 16 words, select 4 tiles at a time and assign them a colour to form groups.</p>
         <div className="landing">
           <input
             ref={fileInputRef}
@@ -602,42 +466,37 @@ function App() {
   }
 
   // Main grid
-  const usedColors = new Set(Object.values(rowColors).filter(c => c !== null));
+  const groupedCount = tileColors.filter(c => c !== null).length;
+  const usedColorSet = new Set(tileColors.filter(c => c !== null));
 
   return (
     <div className="app">
       <h1>Purple First</h1>
       <p className="hint">
-        {paintingColor !== null
-          ? `Tap a row to paint it ${COLORS[paintingColor].name}`
-          : 'Tap or drag tiles to swap them'}
+        {selectedTiles.size === 0
+          ? 'Select 4 tiles to form a group'
+          : selectedTiles.size < 4
+            ? `${selectedTiles.size}/4 selected — pick ${4 - selectedTiles.size} more`
+            : 'Choose a colour for this group'}
       </p>
 
       <div className="grid">
         {words!.map((word, i) => {
-          const row = Math.floor(i / 4);
-          const colorIdx = rowColors[row];
+          const colorIdx = tileColors[i];
           const color = colorIdx !== null ? COLORS[colorIdx] : NEUTRAL;
-          const isSelected = selectedIndex === i;
-          const isPainted = colorIdx !== null;
+          const isSelected = selectedTiles.has(i);
+          const isGrouped = colorIdx !== null;
 
           return (
             <div
               key={i}
               data-tile-index={i}
-              className={`tile${isSelected ? ' selected' : ''}${isPainted ? ' painted' : ''}${paintingColor !== null ? ' paint-mode' : ''}`}
+              className={`tile${isSelected ? ' selected' : ''}${isGrouped ? ' grouped' : ''}`}
               style={{
                 backgroundColor: color.bg,
                 color: color.text,
               }}
               onClick={() => handleTileTap(i)}
-              draggable={paintingColor === null}
-              onDragStart={e => handleDragStart(e, i)}
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => handleDrop(e, i)}
-              onTouchStart={e => handleTouchStart(e, i)}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
             >
               {word}
             </div>
@@ -646,20 +505,20 @@ function App() {
       </div>
 
       <div className="color-bar">
-        <span className="color-bar-label">Paint row:</span>
         {COLORS.map((c, i) => {
-          const assignedRow = Object.entries(rowColors).find(([, ci]) => ci === i);
+          const hasGroup = usedColorSet.has(i);
           return (
             <button
               key={i}
-              className={`color-btn${paintingColor === i ? ' active' : ''}${assignedRow ? ' used' : ''}`}
+              className={`color-btn${hasGroup ? ' used' : ''}`}
               style={{
                 backgroundColor: c.bg,
                 color: c.text,
-                borderColor: paintingColor === i ? '#333' : c.bg,
+                borderColor: c.bg,
               }}
-              onClick={() => handlePaintClick(i)}
-              title={assignedRow ? `${c.name} (row ${Number(assignedRow[0]) + 1}) — tap to reassign` : c.name}
+              onClick={() => handleAssignColor(i)}
+              disabled={selectedTiles.size !== 4}
+              title={c.name}
             >
               {c.name}
             </button>
@@ -667,22 +526,10 @@ function App() {
         })}
       </div>
 
-      {usedColors.size > 0 && (
-        <div className="painted-rows">
-          {[0, 1, 2, 3].map(row => {
-            const ci = rowColors[row];
-            if (ci === null) return null;
-            return (
-              <div key={row} className="painted-row-tag" style={{ backgroundColor: COLORS[ci].bg, color: COLORS[ci].text }}>
-                Row {row + 1}: {COLORS[ci].name}
-                <button className="clear-tag" onClick={() => handleClearColor(row)} style={{ color: COLORS[ci].text }}>✕</button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       <div className="button-row">
+        {selectedTiles.size > 0 && (
+          <button onClick={handleDeselectAll}>Deselect</button>
+        )}
         <button onClick={handleUndo} disabled={history.length === 0}>Undo</button>
         <button onClick={handleShuffle}>Shuffle</button>
         <button onClick={handleEditOpen}>Edit</button>
