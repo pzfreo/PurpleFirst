@@ -129,6 +129,8 @@ h1 {
   border-radius: 16px;
   cursor: pointer;
   transition: all 0.2s;
+  min-width: 72px;
+  text-align: center;
 }
 
 .color-btn:disabled {
