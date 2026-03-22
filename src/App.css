@@ -131,6 +131,7 @@ h1 {
   transition: all 0.2s;
   min-width: 72px;
   text-align: center;
+  white-space: nowrap;
 }
 
 .color-btn:disabled {
