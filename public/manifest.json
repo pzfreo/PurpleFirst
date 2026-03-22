@@ -25,7 +25,7 @@
       "files": [
         {
           "name": "image",
-          "accept": ["image/png", "image/jpeg", "image/webp", "image/*"]
+          "accept": ["image/png", "image/jpeg", "image/webp", ".png", ".jpg", ".jpeg", ".webp"]
         }
       ]
     }
